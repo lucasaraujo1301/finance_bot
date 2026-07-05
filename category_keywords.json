@@ -1,0 +1,15 @@
+{
+  "snack": ["ifood", "uber eats", "rappi", "aiqfome", "pizza", "hamburguer", "lanche", "bobs", "mcdonalds"],
+  "streaming": ["netflix", "spotify", "prime video", "disney", "hbo", "youtube", "apple tv", "deezer"],
+  "internet": ["brisa", "vivo fibra", "oi fibra", "claro"],
+  "transport": ["uber", "99", "taxi", "gasolina", "combustivel", "posto", "pedagio"],
+  "market": ["mercado", "supermercado", "pão de açúcar", "carrefour", "extra", "assai", "atacadao"],
+  "subscription": ["assinatura", "mensalidade", "plano"],
+  "education": ["coursera", "udemy", "alura", "curso", "edx", "educação", "escola", "faculdade", "universidade"],
+  "health": ["farmacia", "drogaria", "medico", "consulta", "plano de saude", "dental", "academia"],
+  "housing": ["aluguel", "condominio", "agua", "energia", "luz"],
+  "entertainment": ["cinema", "teatro", "show", "evento", "jogo", "ingresso"],
+  "clothing": ["roupa", "vestuario", "sapato", "calçado", "acessorio", "moda"],
+  "cell": ["celular", "smartphone", "telefone"],
+  "games": ["jogo", "game", "xbox", "playstation", "nintendo", "steam"]
+}
