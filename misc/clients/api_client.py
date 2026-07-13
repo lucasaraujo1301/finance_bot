@@ -3,7 +3,7 @@ from logging import Logger
 import httpx
 
 
-class ApiService:
+class ApiClient:
     def __init__(self, logger: Logger, base_url: str):
         self.logger = logger
         self.base_url = base_url.rstrip("/")

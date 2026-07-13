@@ -2,13 +2,13 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from misc.services.api_service import ApiService
+from misc.clients.api_client import ApiClient
 
 
 @pytest.mark.asyncio
-class TestApiService:
-    def make_service(self) -> ApiService:
-        return ApiService(logger=Mock(), base_url="https://api.example.com/")
+class TestApiClient:
+    def make_service(self) -> ApiClient:
+        return ApiClient(logger=Mock(), base_url="https://api.example.com/")
 
     def mock_async_client(self, monkeypatch):
         client = Mock()
@@ -21,7 +21,7 @@ class TestApiService:
         async_client.return_value.__aenter__ = AsyncMock(return_value=client)
         async_client.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        monkeypatch.setattr("misc.services.api_service.httpx.AsyncClient", async_client)
+        monkeypatch.setattr("misc.clients.api_client.httpx.AsyncClient", async_client)
         return async_client, client
 
     async def test_get_url_normalizes_slashes(self):
