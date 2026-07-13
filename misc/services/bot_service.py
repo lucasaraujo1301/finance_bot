@@ -31,7 +31,9 @@ class BotService:
         user = self._get_user_by_telegram_id(telegram_user.id)
 
         if not user:
-            pass
+            await update.message.reply_text(
+                f"Hi {telegram_user.first_name}! I'm creating your profile so I can help track your finances."
+            )
         return await self._show_commands(update.message, telegram_user)
 
     def _get_user_by_telegram_id(self, telegram_id: int) -> None | UserApiKeyRecord:
