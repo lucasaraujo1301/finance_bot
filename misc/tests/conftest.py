@@ -1,1 +1,3 @@
-pytest_plugins = ["misc.tests.fixtures.telegram"]
+pytest_plugins = [
+    "misc.tests.fixtures.telegram",
+]
