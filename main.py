@@ -91,6 +91,7 @@ def main() -> None:
     logger = logging.getLogger("finance_bot")
 
     load_dotenv()
+    logger.info(os.getenv("ENCYRPTION_KEY"))
     token = os.getenv("BOT_TOKEN", "TOKEN")
     allowed_users = {803626879}  # your user ID
     FinanceBot(token=token, allowed_users=allowed_users, logger=logger).run()
