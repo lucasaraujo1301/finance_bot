@@ -15,6 +15,7 @@ def telegram_user():
     user = Mock()
     user.id = 123
     user.first_name = "Lucas"
+    user.last_name = "Araujo"
     return user
 
 

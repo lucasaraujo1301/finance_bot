@@ -2,15 +2,15 @@ from logging import Logger
 
 from telegram import Message, Update, User
 
-from misc.dataclass import UserApiKeyRecord
-from misc.repository import UserRepository
+from misc.exceptions import CreateRemoteUserError
+from misc.services.user_api_service import UserService
 
 
 class BotService:
     def __init__(self, logger: Logger, allowed_users: set[int]):
         self.logger = logger
         self.allowed_users = allowed_users
-        self._repository = UserRepository()
+        self._user_service = UserService(self.logger)
 
     async def start_command(self, update: Update):
         if not update.message:
@@ -28,16 +28,20 @@ class BotService:
             return await update.message.reply_text(f"{telegram_user.first_name} you are not allowed to use this bot.")
 
         self.logger.info(f"Initializing bot for user {telegram_user.id}.")
-        user = self._get_user_by_telegram_id(telegram_user.id)
+        user = self._user_service.get_user_by_telegram_id(telegram_user.id)
 
         if not user:
             await update.message.reply_text(
                 f"Hi {telegram_user.first_name}! I'm creating your profile so I can help track your finances."
             )
-        return await self._show_commands(update.message, telegram_user)
+            try:
+                await self._user_service.create_user(telegram_user)
+            except CreateRemoteUserError:
+                return await update.message.reply_text(
+                    "I couldn't create your profile right now. Please try again in a moment."
+                )
 
-    def _get_user_by_telegram_id(self, telegram_id: int) -> None | UserApiKeyRecord:
-        return self._repository.get_user_by_telegram_id(telegram_id)
+        return await self._show_commands(update.message, telegram_user)
 
     def _is_allowed_user(self, user_id: int) -> bool:
         return user_id in self.allowed_users

@@ -1,9 +1,6 @@
-import os
 import sqlite3
 
 from pathlib import Path
-
-from cryptography.fernet import Fernet
 
 from misc.dataclass import UserApiKeyRecord
 
@@ -13,8 +10,6 @@ DEFAULT_DATABASE_PATH = Path(__file__).resolve().parent.parent / "db.sqlite"
 class UserRepository:
     def __init__(self, database_path: str | Path = DEFAULT_DATABASE_PATH) -> None:
         self.database_path = database_path
-        key = os.getenv("ENCYRPTION_KEY", "")
-        self.crypto = Fernet(key)
         self._init_database()
 
     def _connect(self) -> sqlite3.Connection:
