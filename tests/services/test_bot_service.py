@@ -6,9 +6,10 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from telegram import InlineKeyboardMarkup
+from telegram.ext import ConversationHandler
 
 from exceptions import CreateRemoteUserError
-from services.bot_service import ENTRY_CONFIRMATION_TIMEOUT_SECONDS, BotService
+from services.bot_service import EMAIL, EMAIL_CONFIRMATION, ENTRY_CONFIRMATION_TIMEOUT_SECONDS, BotService
 
 COMMAND_HELP = (
     "Here are the commands you can use:\n"
@@ -38,9 +39,9 @@ class TestBotService:
         service, user_service = self.make_service(monkeypatch)
         telegram_update.message = None
 
-        response = await service.start_command(telegram_update)
+        response = await service.start_command(telegram_update, SimpleNamespace(user_data={}))
 
-        assert response is None
+        assert response == ConversationHandler.END
         user_service.create_user.assert_not_called()
 
     async def test_start_command_replies_unauthorized_when_effective_user_is_missing(
@@ -49,7 +50,7 @@ class TestBotService:
         service, user_service = self.make_service(monkeypatch)
         telegram_update.effective_user = None
 
-        await service.start_command(telegram_update)
+        await service.start_command(telegram_update, SimpleNamespace(user_data={}))
 
         telegram_message.reply_text.assert_awaited_once_with("Unauthorized.")
         user_service.create_user.assert_not_called()
@@ -60,44 +61,91 @@ class TestBotService:
         service, user_service = self.make_service(monkeypatch)
         service.allowed_users = {999}
 
-        await service.start_command(telegram_update)
+        await service.start_command(telegram_update, SimpleNamespace(user_data={}))
 
         telegram_message.reply_text.assert_awaited_once_with(
             f"{telegram_user.first_name} you are not allowed to use this bot."
         )
         user_service.create_user.assert_not_called()
 
-    async def test_start_command_creates_user_and_sends_confirmation(
-        self, monkeypatch, telegram_update, telegram_message, telegram_user
-    ):
+    async def test_start_command_requests_email(self, monkeypatch, telegram_update, telegram_message, telegram_user):
         service, user_service = self.make_service(monkeypatch)
+        context = SimpleNamespace(user_data={"pending_email": "old@example.com"})
 
-        await service.start_command(telegram_update)
+        state = await service.start_command(telegram_update, context)
 
-        user_service.create_user.assert_awaited_once_with(telegram_user)
-        telegram_message.reply_text.assert_any_await(
-            f"Hi {telegram_user.first_name}! I'm creating your profile so I can help track your finances."
+        assert state == EMAIL
+        assert context.user_data == {}
+        user_service.create_user.assert_not_awaited()
+        telegram_message.reply_text.assert_awaited_once_with(
+            f"Hi {telegram_user.first_name}! Please enter your email address."
         )
-        telegram_message.reply_text.assert_any_await("Conta criada")
-        telegram_message.reply_text.assert_any_await(
+
+    async def test_receive_email_requests_confirmation(self, monkeypatch, telegram_update, telegram_message):
+        service, _ = self.make_service(monkeypatch)
+        telegram_message.text = " user@example.com "
+        context = SimpleNamespace(user_data={})
+
+        state = await service.receive_email(telegram_update, context)
+
+        assert state == EMAIL_CONFIRMATION
+        assert context.user_data["pending_email"] == "user@example.com"
+        assert telegram_message.reply_text.await_args.args == ("Please confirm your email: user@example.com",)
+        assert isinstance(telegram_message.reply_text.await_args.kwargs["reply_markup"], InlineKeyboardMarkup)
+
+    async def test_confirm_email_creates_user(self, monkeypatch, telegram_update, telegram_user):
+        service, user_service = self.make_service(monkeypatch)
+        query = Mock()
+        query.data = "start:confirm_email"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        query.message = Mock()
+        query.message.reply_text = AsyncMock()
+        telegram_update.callback_query = query
+        context = SimpleNamespace(user_data={"pending_email": "user@example.com"})
+
+        state = await service.confirm_email(telegram_update, context)
+
+        assert state == ConversationHandler.END
+        user_service.create_user.assert_awaited_once_with(telegram_user, "user@example.com")
+        query.edit_message_text.assert_awaited_once_with("Profile created successfully.")
+        query.message.reply_text.assert_awaited_once_with(
             f"Hi {telegram_user.first_name}! I'm ready to help you track your finances.\n\n{COMMAND_HELP}"
         )
 
-    async def test_start_command_replies_when_user_creation_fails(
-        self, monkeypatch, telegram_update, telegram_message, telegram_user
-    ):
+    async def test_confirm_email_reports_api_rejection(self, monkeypatch, telegram_update):
         service, user_service = self.make_service(monkeypatch)
         user_service.create_user.side_effect = CreateRemoteUserError()
+        query = Mock()
+        query.data = "start:confirm_email"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        telegram_update.callback_query = query
+        context = SimpleNamespace(user_data={"pending_email": "invalid-email"})
 
-        await service.start_command(telegram_update)
+        state = await service.confirm_email(telegram_update, context)
 
-        user_service.create_user.assert_awaited_once_with(telegram_user)
-        telegram_message.reply_text.assert_any_await(
-            f"Hi {telegram_user.first_name}! I'm creating your profile so I can help track your finances."
+        assert state == ConversationHandler.END
+        user_service.create_user.assert_awaited_once_with(telegram_update.effective_user, "invalid-email")
+        query.edit_message_text.assert_awaited_once_with(
+            "The API rejected this email or could not create your profile. Run /start and try again."
         )
-        telegram_message.reply_text.assert_any_await(
-            "I couldn't create your profile right now. Please try again in a moment."
-        )
+
+    async def test_confirm_email_cancels_profile_creation(self, monkeypatch, telegram_update):
+        service, user_service = self.make_service(monkeypatch)
+        query = Mock()
+        query.data = "start:cancel_email"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        telegram_update.callback_query = query
+        context = SimpleNamespace(user_data={"pending_email": "user@example.com"})
+
+        state = await service.confirm_email(telegram_update, context)
+
+        assert state == ConversationHandler.END
+        assert context.user_data == {}
+        user_service.create_user.assert_not_awaited()
+        query.edit_message_text.assert_awaited_once_with("Profile creation cancelled.")
 
     async def test_show_commands_uses_user_first_name(self, monkeypatch, telegram_message, telegram_user):
         service, _ = self.make_service(monkeypatch)

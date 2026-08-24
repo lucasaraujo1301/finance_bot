@@ -14,12 +14,13 @@ class TestUserService:
         response.json.return_value = {"api_key": "raw-api-key"}
         user_service_dependencies.client.post.return_value = response
 
-        await user_service_dependencies.service.create_user(telegram_user)
+        await user_service_dependencies.service.create_user(telegram_user, "lucas@example.com")
 
         user_service_dependencies.client.post.assert_awaited_once_with(
             {
                 "full_name": "Lucas Araujo",
                 "telegram_id": "123",
+                "email": "lucas@example.com",
             },
             "/users",
             language_code=telegram_user.language_code,
@@ -32,7 +33,7 @@ class TestUserService:
         user_service_dependencies.client.post.return_value = response
 
         with pytest.raises(CreateRemoteUserError):
-            await user_service_dependencies.service.create_user(telegram_user)
+            await user_service_dependencies.service.create_user(telegram_user, "invalid-email")
 
         user_service_dependencies.logger.error.assert_called_once_with(
             "Failed to create user in API. status=%s\n body=%s",
@@ -45,7 +46,7 @@ class TestUserService:
         user_service_dependencies.client.post.side_effect = error
 
         with pytest.raises(CreateRemoteUserError):
-            await user_service_dependencies.service.create_user(telegram_user)
+            await user_service_dependencies.service.create_user(telegram_user, "lucas@example.com")
 
         user_service_dependencies.logger.error.assert_called_once_with(
             "Failed to connect to user API. error=%s",

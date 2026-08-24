@@ -7,12 +7,13 @@ from logging import Logger
 from pathlib import Path
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update, User
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, ConversationHandler
 
 from exceptions import CreateRemoteUserError
 from services.user_api_service import UserService
 
 ENTRY_CONFIRMATION_TIMEOUT_SECONDS = 120
+EMAIL, EMAIL_CONFIRMATION = range(2)
 
 
 class BotService:
@@ -76,37 +77,95 @@ class BotService:
 
     # END PRIVATE METHODS
 
-    async def start_command(self, update: Update):
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         if not update.message:
-            return
+            return ConversationHandler.END
 
         if not update.effective_user:
             self.logger.warning("Unauthorized access attempt: no effective user.")
-            return await update.message.reply_text("Unauthorized.")
+            await update.message.reply_text("Unauthorized.")
+            return ConversationHandler.END
 
         telegram_user = update.effective_user
         self.logger.info(f"Received /start command from user {telegram_user.id}")
 
         if not self._is_allowed_user(telegram_user.id):
             self.logger.warning(f"Unauthorized access attempt from user {telegram_user.id}.")
-            return await update.message.reply_text(f"{telegram_user.first_name} you are not allowed to use this bot.")
+            await update.message.reply_text(f"{telegram_user.first_name} you are not allowed to use this bot.")
+            return ConversationHandler.END
 
         self.logger.info(f"Initializing bot for user {telegram_user.id}.")
 
-        await update.message.reply_text(
-            f"Hi {telegram_user.first_name}! I'm creating your profile so I can help track your finances."
+        if context.user_data is not None:
+            context.user_data.pop("pending_email", None)
+        await update.message.reply_text(f"Hi {telegram_user.first_name}! Please enter your email address.")
+        return EMAIL
+
+    async def receive_email(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        if not update.message or not update.message.text or context.user_data is None:
+            return EMAIL
+
+        email = update.message.text.strip()
+        if not email:
+            await update.message.reply_text("Please enter a non-empty email address.")
+            return EMAIL
+
+        context.user_data["pending_email"] = email
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("Confirm", callback_data="start:confirm_email"),
+                    InlineKeyboardButton("Cancel", callback_data="start:cancel_email"),
+                ]
+            ]
         )
+        await update.message.reply_text(f"Please confirm your email: {email}", reply_markup=keyboard)
+        return EMAIL_CONFIRMATION
+
+    async def confirm_email(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        query = update.callback_query
+        if not query:
+            return EMAIL_CONFIRMATION
+
+        await query.answer()
+        if query.data == "start:cancel_email":
+            if context.user_data is not None:
+                context.user_data.pop("pending_email", None)
+            await query.edit_message_text("Profile creation cancelled.")
+            return ConversationHandler.END
+
+        telegram_user = update.effective_user
+        email = context.user_data.pop("pending_email", None) if context.user_data is not None else None
+        if not telegram_user or not self._is_allowed_user(telegram_user.id) or not email:
+            await query.edit_message_text("This email confirmation has expired. Run /start again.")
+            return ConversationHandler.END
 
         try:
-            await self._user_service.create_user(telegram_user)
+            await self._user_service.create_user(telegram_user, email)
         except CreateRemoteUserError:
-            return await update.message.reply_text(
-                "I couldn't create your profile right now. Please try again in a moment."
+            await query.edit_message_text(
+                "The API rejected this email or could not create your profile. Run /start and try again."
             )
+            return ConversationHandler.END
 
-        await update.message.reply_text("Conta criada")
+        await query.edit_message_text("Profile created successfully.")
+        if query.message:
+            await self._show_commands(query.message, telegram_user)
+        return ConversationHandler.END
 
-        return await self._show_commands(update.message, telegram_user)
+    async def cancel_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        if context.user_data is not None:
+            context.user_data.pop("pending_email", None)
+        if update.message:
+            await update.message.reply_text("Profile creation cancelled.")
+        return ConversationHandler.END
+
+    async def start_timeout(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        if context.user_data is not None:
+            context.user_data.pop("pending_email", None)
+        if update.effective_message:
+            await update.effective_message.reply_text("Email confirmation expired. Run /start again.")
+        return ConversationHandler.END
 
     async def add_command(
         self,
