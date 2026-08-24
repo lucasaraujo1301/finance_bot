@@ -1,12 +1,9 @@
-import json
 import logging
 import os
 
-from pathlib import Path
-
 from dotenv import load_dotenv
 from telegram import Message, Update
-from telegram.ext import Application, CommandHandler
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from services.bot_service import BotService
 
@@ -17,29 +14,31 @@ class FinanceBot:
         token: str,
         allowed_users: set[int],
         logger: logging.Logger,
-        category_keywords_path: str = "category_keywords.json",
     ) -> None:
         self.token = token
         self.allowed_users = allowed_users
         self.logger = logger
-        self.category_keywords = self._load_category_keywords(category_keywords_path)
         self._service = BotService(logger=self.logger, allowed_users=allowed_users)
-
-    def _load_category_keywords(self, category_keywords_path: str) -> dict[str, list[str]]:
-        with Path(category_keywords_path).open() as file:
-            return json.load(file)
 
     async def start_cmd(self, update: Update, _) -> None | Message:
         return await self._service.start_command(update)
 
-    async def add_cmd(self, update: Update, _) -> None | Message:
-        return await self._service.add_command(update, self.category_keywords)
+    async def expense_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None | Message:
+        return await self._service.add_command(update, context, "debit")
+
+    async def income_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None | Message:
+        return await self._service.add_command(update, context, "credit")
+
+    async def confirm_entry(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        await self._service.confirm_entry(update, context)
 
     def run(self) -> None:
         self.logger.info("Starting Finance Bot...")
         app = Application.builder().token(self.token).build()
         app.add_handler(CommandHandler("start", self.start_cmd))
-        app.add_handler(CommandHandler("add", self.add_cmd))
+        app.add_handler(CommandHandler("expense", self.expense_cmd))
+        app.add_handler(CommandHandler("income", self.income_cmd))
+        app.add_handler(CallbackQueryHandler(self.confirm_entry, pattern=r"^entry:(confirm|cancel)$"))
         self.logger.info("Bot started, polling for updates...")
         app.run_polling()
 
