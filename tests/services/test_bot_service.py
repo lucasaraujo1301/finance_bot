@@ -2,18 +2,16 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from misc.dataclass import UserApiKeyRecord
-from misc.exceptions import CreateRemoteUserError
-from misc.services.bot_service import BotService
+from exceptions import CreateRemoteUserError
+from services.bot_service import BotService
 
 
 @pytest.mark.asyncio
 class TestBotService:
-    def make_service(self, monkeypatch, user_record: UserApiKeyRecord | None = None):
+    def make_service(self, monkeypatch):
         user_service = Mock()
-        user_service.get_user_by_telegram_id.return_value = user_record
         user_service.create_user = AsyncMock()
-        monkeypatch.setattr("misc.services.bot_service.UserService", Mock(return_value=user_service))
+        monkeypatch.setattr("services.bot_service.UserService", Mock(return_value=user_service))
 
         service = BotService(logger=Mock(), allowed_users={123})
         return service, user_service
@@ -25,7 +23,6 @@ class TestBotService:
         response = await service.start_command(telegram_update)
 
         assert response is None
-        user_service.get_user_by_telegram_id.assert_not_called()
         user_service.create_user.assert_not_called()
 
     async def test_start_command_replies_unauthorized_when_effective_user_is_missing(
@@ -37,7 +34,6 @@ class TestBotService:
         await service.start_command(telegram_update)
 
         telegram_message.reply_text.assert_awaited_once_with("Unauthorized.")
-        user_service.get_user_by_telegram_id.assert_not_called()
         user_service.create_user.assert_not_called()
 
     async def test_start_command_replies_not_allowed_when_user_is_not_allowed(
@@ -51,38 +47,21 @@ class TestBotService:
         telegram_message.reply_text.assert_awaited_once_with(
             f"{telegram_user.first_name} you are not allowed to use this bot."
         )
-        user_service.get_user_by_telegram_id.assert_not_called()
         user_service.create_user.assert_not_called()
 
-    async def test_start_command_sends_profile_creation_message_when_user_does_not_exist(
+    async def test_start_command_creates_user_and_sends_confirmation(
         self, monkeypatch, telegram_update, telegram_message, telegram_user
     ):
         service, user_service = self.make_service(monkeypatch)
 
         await service.start_command(telegram_update)
 
-        user_service.get_user_by_telegram_id.assert_called_once_with(telegram_user.id)
         user_service.create_user.assert_awaited_once_with(telegram_user)
         telegram_message.reply_text.assert_any_await(
             f"Hi {telegram_user.first_name}! I'm creating your profile so I can help track your finances."
         )
+        telegram_message.reply_text.assert_any_await("Conta criada")
         telegram_message.reply_text.assert_any_await(
-            f"Hi {telegram_user.first_name}! I'm ready to help you track your finances.\n\n"
-            "Here are the commands you can use:\n"
-            "/add <amount> <description>  — add debit"
-        )
-
-    async def test_start_command_only_shows_commands_when_user_already_exists(
-        self, monkeypatch, telegram_update, telegram_message, telegram_user
-    ):
-        user_record = UserApiKeyRecord(telegram_id=telegram_user.id, api_key="api-key", created_at="2026-07-13")
-        service, user_service = self.make_service(monkeypatch, user_record=user_record)
-
-        await service.start_command(telegram_update)
-
-        user_service.get_user_by_telegram_id.assert_called_once_with(telegram_user.id)
-        user_service.create_user.assert_not_called()
-        telegram_message.reply_text.assert_awaited_once_with(
             f"Hi {telegram_user.first_name}! I'm ready to help you track your finances.\n\n"
             "Here are the commands you can use:\n"
             "/add <amount> <description>  — add debit"
@@ -96,7 +75,6 @@ class TestBotService:
 
         await service.start_command(telegram_update)
 
-        user_service.get_user_by_telegram_id.assert_called_once_with(telegram_user.id)
         user_service.create_user.assert_awaited_once_with(telegram_user)
         telegram_message.reply_text.assert_any_await(
             f"Hi {telegram_user.first_name}! I'm creating your profile so I can help track your finances."

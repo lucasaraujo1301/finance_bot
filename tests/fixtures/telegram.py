@@ -16,6 +16,7 @@ def telegram_user():
     user.id = 123
     user.first_name = "Lucas"
     user.last_name = "Araujo"
+    user.language_code = "pt-BR"
     return user
 
 
